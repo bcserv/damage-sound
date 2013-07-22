@@ -291,7 +291,7 @@ public OnClientConnected(client){
 
 public OnClientPutInServer(client){
 	
-	if(IsClientConnected(client) && !IsClientSourceTV(client)){		//!IsFakeClient(client)){	
+	if(IsClientConnected(client) && !IsClientSourceTV(client)){
 		
 		if(AreClientCookiesCached(client)){
 			
@@ -309,7 +309,7 @@ public OnClientPutInServer(client){
 
 public OnClientCookiesCached(client){
 	
-	if(IsClientInGame(client) && !IsClientSourceTV(client)){		//IsFakeClient(client)){
+	if(IsClientInGame(client) && !IsClientSourceTV(client)){
 		
 		loadClientCookiesFor(client);	
 	}
