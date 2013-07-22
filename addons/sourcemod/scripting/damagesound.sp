@@ -1,7 +1,7 @@
 
 /********************************************
 * 
-* DamageSound Version "1.5"
+* DamageSound Version "1.6"
 * 
 * With this plugin a player hears a sound if he damaged another player.
 * 
@@ -50,6 +50,10 @@
 * 
 * 
 * Changelog:
+*
+* v1.6     - Add sm_damagesound_actonweapon to specify what weapons to play sound for - [foo] bar
+*          - Hook fake clients (for bots) - [foo] bar
+*            
 * v1.5     - Changed Version number from 3 digits to 2
 *          - Added support for bots
 *          - Added support that spectators can hear sound when the observed player damage someone.
@@ -98,23 +102,28 @@ I N C L U D E S
 P L U G I N   C O N S T A N T S
 *****************************************************************/
 
-#define PLUGIN_VERSION	"1.5"
+#define PLUGIN_VERSION	"1.6"
 #define PLUGIN_NAME "Damage Sound"
 #define MIN 0.0
 #define MAX 1.0
 #define MAXMENUENTRYS 10
 #define MAXPITCH 255
 
+const NUM_WEAPONS = 8;
+
 //Cvars:
 new Handle:damagesound_version 					= INVALID_HANDLE;
 new Handle:cvar_soundmaster_enable 				= INVALID_HANDLE;
 new Handle:cvar_soundpath 						= INVALID_HANDLE;
 new Handle:cvar_soundafterplaydelay 			= INVALID_HANDLE;
-
+new Handle:cvar_actonweapons = INVALID_HANDLE;
 //Plugin stuff:
 new String:soundpath[PLATFORM_MAX_PATH];
 new hitCounter[MAXPLAYERS+1][MAXPLAYERS+1];
 new Float:lastHit[MAXPLAYERS+1][MAXPLAYERS+1];
+
+
+new String:actonWeapons[NUM_WEAPONS][32];
 
 //cookie and settings:
 new Handle:cvar_client_enable		= INVALID_HANDLE;
@@ -137,7 +146,7 @@ public Plugin:myinfo =
 {
 	name = PLUGIN_NAME,
 	author = "Chanz",
-	description = "This plugin plays a sound when players hit eachothers.",
+	description = "This plugin plays a sound when players hit each other.",
 	version = PLUGIN_VERSION,
 	url = "www.mannisfunhouse.eu"
 }
@@ -160,11 +169,12 @@ public OnPluginStart()
 	cvar_client_volume = CreateConVar("sm_damagesound_client_volume", "0.7", "From 0.0 to 1.0 you can set the clients default volume of the sound.", FCVAR_PLUGIN);
 	cvar_client_pitch = CreateConVar("sm_damagesound_client_pitch", "0", "Should the sound for the client pitch up with every hit by default? (1=on/0=off) (Dystopia Effect)", FCVAR_PLUGIN);
 	cvar_client_pitch_time = CreateConVar("sm_damagesound_client_pitch_time", "2.0", "Sets the client default setting: If the attacker did not hit his victim, after X seconds the pitch resets to normal (0=it pitches up until the victim dies)", FCVAR_PLUGIN);
+	cvar_actonweapons = CreateConVar("sm_damagesound_actonweapon","","Specifies which weapons damagesounds will play for.  Default is all");
 	
 	HookConVarChange(cvar_soundpath,CvarSoundPathHook);
 	HookEvent("player_hurt", Event_Hurt);
 	HookEvent("player_death", Event_Death);
-	
+
 	AutoExecConfig(true, "plugin.damagesound");
 	
 	cookie_enable = RegClientCookie("DmgSndConf-Enable","DamageSound Enable cookie",CookieAccess_Private);
@@ -174,6 +184,12 @@ public OnPluginStart()
 	
 	RegConsoleCmd("sm_soundtest",Command_SoundTest,"damagesound test soound");
 	
+	decl String:temp[200];
+	GetConVarString(cvar_actonweapons,temp,sizeof(temp));
+	if(!StrEqual(temp,"")){
+		ExplodeString(temp," ",actonWeapons,sizeof(actonWeapons),32);
+	}
+
 	PrintToServer("[%s] Plugin loaded... (v%s)",PLUGIN_NAME,PLUGIN_VERSION);
 }
 
@@ -186,7 +202,7 @@ public OnConfigsExecuted(){
 	GetConVarString(cvar_soundpath,tempsoundpath,sizeof(tempsoundpath));
 	
 	if(IsSoundFileOk(tempsoundpath)){
-		
+	
 		strcopy(soundpath,sizeof(soundpath),tempsoundpath);
 	}
 }
@@ -213,6 +229,21 @@ stock bool:IsSoundFileOk(const String:tempsoundpath[]){
 	}	
 	
 	return foundfile;
+}
+
+bool:IsWeaponSoundable(String:weapon[])
+{
+	new i=0;
+	if(StrEqual(actonWeapons[0],"")){
+		return true;
+	}
+	for(i=0;i<sizeof(actonWeapons);i++){
+		PrintToServer("'%s' = '%s'", actonWeapons[i], weapon);
+		if(StrEqual(actonWeapons[i],weapon)){
+			return true;
+		}
+	}
+	return false;
 }
 
 public CvarSoundPathHook(Handle:cvar, const String:oldVal[], const String:newVal[]){
@@ -260,7 +291,7 @@ public OnClientConnected(client){
 
 public OnClientPutInServer(client){
 	
-	if(!IsFakeClient(client)){	
+	if(IsClientConnected(client) && !IsClientSourceTV(client)){		//!IsFakeClient(client)){	
 		
 		if(AreClientCookiesCached(client)){
 			
@@ -278,7 +309,7 @@ public OnClientPutInServer(client){
 
 public OnClientCookiesCached(client){
 	
-	if(IsClientInGame(client) && !IsFakeClient(client)){
+	if(IsClientInGame(client) && !IsClientSourceTV(client)){		//IsFakeClient(client)){
 		
 		loadClientCookiesFor(client);	
 	}
@@ -335,21 +366,33 @@ public Action:Event_Death(Handle:event, const String:name[], bool:dontBroadcast)
 	hitCounter[client][attacker] = 0;
 }
 
-public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast){
+public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
+{	
+	decl String:weapon[32];	
 	
 	if(!GetConVarBool(cvar_soundmaster_enable)){
 		return;
 	}
-	
+
+
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	
 	if(!client_enable[client]){
 		return;
 	}
+
+	GetClientWeapon(attacker,weapon,sizeof(weapon));
+	PrintToServer("damagesound: attacker=%d weapon=%s", attacker, weapon);	
 	
 	if(Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)){
 		
+		if(!IsWeaponSoundable(weapon)){
+			PrintToServer("damagesound: No make damage sound for %s",weapon);
+			return;
+		} else {
+			PrintToServer("damagesound: Make damage sound for %s",weapon);
+		}
+
 		new Float:thetime = GetGameTime();
 		new Float:resettime = client_pitch_time[client];
 		
@@ -516,4 +559,5 @@ public Action:Command_SoundTest(client,args){
 	
 	return Plugin_Handled;
 }
+
 
