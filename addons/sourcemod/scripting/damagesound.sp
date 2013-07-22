@@ -238,7 +238,7 @@ bool:IsWeaponSoundable(String:weapon[])
 		return true;
 	}
 	for(i=0;i<sizeof(actonWeapons);i++){
-		PrintToServer("'%s' = '%s'", actonWeapons[i], weapon);
+//		PrintToServer("'%s' = '%s'", actonWeapons[i], weapon);
 		if(StrEqual(actonWeapons[i],weapon)){
 			return true;
 		}
@@ -382,15 +382,15 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 	}
 
 	GetClientWeapon(attacker,weapon,sizeof(weapon));
-	PrintToServer("damagesound: attacker=%d weapon=%s", attacker, weapon);	
+//	PrintToServer("damagesound: attacker=%d weapon=%s", attacker, weapon);	
 	
 	if(Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)){
 		
 		if(!IsWeaponSoundable(weapon)){
-			PrintToServer("damagesound: No make damage sound for %s",weapon);
+//			PrintToServer("damagesound: No make damage sound for %s",weapon);
 			return;
 		} else {
-			PrintToServer("damagesound: Make damage sound for %s",weapon);
+//			PrintToServer("damagesound: Make damage sound for %s",weapon);
 		}
 
 		new Float:thetime = GetGameTime();
