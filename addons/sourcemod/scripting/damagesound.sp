@@ -186,8 +186,8 @@ public OnPluginStart()
 	
 	decl String:temp[200];
 	GetConVarString(cvar_actonweapons,temp,sizeof(temp));
-	if(!StrEqual(temp,"")){
-		ExplodeString(temp," ",actonWeapons,sizeof(actonWeapons),32);
+	if(temp[0] != '\0'){
+		ExplodeString(temp," ",actonWeapons,sizeof(actonWeapons), sizeof(actonWeapons[]));
 	}
 
 	PrintToServer("[%s] Plugin loaded... (v%s)",PLUGIN_NAME,PLUGIN_VERSION);
@@ -234,7 +234,7 @@ stock bool:IsSoundFileOk(const String:tempsoundpath[]){
 bool:IsWeaponSoundable(String:weapon[])
 {
 	new i=0;
-	if(StrEqual(actonWeapons[0],"")){
+	if(actonWeapons[0][0] == '\0'){
 		return true;
 	}
 	for(i=0;i<sizeof(actonWeapons);i++){
