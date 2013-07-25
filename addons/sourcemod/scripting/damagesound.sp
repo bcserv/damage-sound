@@ -184,11 +184,6 @@ public OnPluginStart()
 	
 	RegConsoleCmd("sm_soundtest",Command_SoundTest,"damagesound test soound");
 	
-	decl String:temp[200];
-	GetConVarString(cvar_actonweapons,temp,sizeof(temp));
-	if(temp[0] != '\0'){
-		ExplodeString(temp," ",actonWeapons,sizeof(actonWeapons), sizeof(actonWeapons[]));
-	}
 
 	PrintToServer("[%s] Plugin loaded... (v%s)",PLUGIN_NAME,PLUGIN_VERSION);
 }
@@ -205,6 +200,13 @@ public OnConfigsExecuted(){
 	
 		strcopy(soundpath,sizeof(soundpath),tempsoundpath);
 	}
+
+	decl String:temp[200];
+	GetConVarString(cvar_actonweapons,temp,sizeof(temp));
+	if(temp[0] != '\0'){
+		ExplodeString(temp," ",actonWeapons,sizeof(actonWeapons), sizeof(actonWeapons[]));
+	}
+
 }
 
 stock bool:IsSoundFileOk(const String:tempsoundpath[]){
@@ -235,6 +237,7 @@ bool:IsWeaponSoundable(String:weapon[])
 {
 	new i=0;
 	if(actonWeapons[0][0] == '\0'){
+//		PrintToServer("No acton weapons configured %s", actonWeapons[0]);
 		return true;
 	}
 	for(i=0;i<sizeof(actonWeapons);i++){
@@ -369,7 +372,7 @@ public Action:Event_Death(Handle:event, const String:name[], bool:dontBroadcast)
 public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 {	
 	decl String:weapon[32];	
-	
+
 	if(!GetConVarBool(cvar_soundmaster_enable)){
 		return;
 	}
@@ -377,7 +380,7 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	if(!client_enable[client]){
+	if(!client_enable[attacker]){
 		return;
 	}
 
