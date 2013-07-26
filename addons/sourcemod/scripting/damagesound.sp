@@ -1,337 +1,668 @@
+/***************************************************************************************
 
-/********************************************
-* 
-* DamageSound Version "1.6"
-* 
-* With this plugin a player hears a sound if he damaged another player.
-* 
-* WARNING: IF YOU UPDATE THIS PLUGIN DELETE THE CONFIG FILE FIRST.
-* THE CONFIG FILE IS LOCATED IN cfg/sourcemod/damagesound.cfg
-* 
-* Install:
-* 1. Put the damagesound.smx into your plugins folder.
-*
-* 2. Within cfg/sourcemod/ is the damagesound.cfg you can change
-* the following:
-* 
-* Menu/Client Commands:
-* 
-*   sm_damagesound or sm_hitsound
-*   -> opens the ingame client side menu.
-* 
-* Server Side Settings:
-* 
-* - sm_damagesound_enable default is: 1
-*   -> Master Switch to enable or disable this plugin. (0=off/1=on)
-* 
-* - sm_damagesound_path default is: "buttons/button10.wav"
-*   -> the path to the sound file.
-* 
-* - sm_damagesound_afterplaydelay default is: 0.1
-*   -> How many secounds should the plugin wait to play the sound again.
-*      (This is for fast weapons like in TF2 the Pyros Flamethrower)
-* 
-* Default Settings for Clients (still server side):
-* 
-* - sm_damagesound_client_enable default is: 1
-*   -> Should the client have had DamageSound enabled by default? (1=yes/0=no)
-* 
-* - sm_damagesound_client_pitch default is: 0
-*   -> Should the sound for the client pitch up with every hit by default? 
-*     (1=yes/0=no) Like in Dystopia.
-* 
-* - sm_damagesound_client_pitch_time: default is: 2.0
-*   -> After 2.0 seconds the pitch is at normal level again,
-*      0.0 means it never resets until the victim dies
-* 
-* - sm_damagesound_client_volume: default is: 1.0
-*   -> From 0.0 to 1.0 you can set the clients default volume of the sound.
-* 
-* 
-* 
-* Changelog:
-*
-* v1.6     - Add sm_damagesound_actonweapon to specify what weapons to play sound for - [foo] bar
-*          - Hook fake clients (for bots) - [foo] bar
-*            
-* v1.5     - Changed Version number from 3 digits to 2
-*          - Added support for bots
-*          - Added support that spectators can hear sound when the observed player damage someone.
-*          - Using now smlib functions
-*          - Renamed the config file from damagesound.cfg into plugin.damagesound.cfg
-* 
-* v1.4.50  - Fixed some critical crash bugs.
-* 
-* v1.4.26  - Added /hitsound and /damagesound to give clients a menu
-*            where they can change the settings of damagesound.
-*          - Fixed console errors when the hitcouoter gets over 255
-*          - Changed Cvar Names
-* 
-* v1.3.23  - Added cvar sm_damagesound_volume
-*          - Added cvar sm_damagesound_pitch
-*          - Added cvar sm_damagesound_pitch_time
-* 
-* v1.1.4   - Added Cvar for damage sound path (sm_damagesound_path)
-* 
-* v1.0.0   - First Public Release
-* 
-* 
-* Thank you Berni, Manni, Mannis FUN House Community and SourceMod/AlliedModders-Team
-* 
-* 
-* *************************************************/
+	Copyright (C) 2012 BCServ (plugins@bcserv.eu)
 
-/****************************************************************
-P R E C O M P I L E R   D E F I N I T I O N S
-*****************************************************************/
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
 
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	
+***************************************************************************************/
+
+/***************************************************************************************
+
+
+	C O M P I L E   O P T I O N S
+
+
+***************************************************************************************/
 // enforce semicolons after each code statement
 #pragma semicolon 1
 
+/***************************************************************************************
 
-/****************************************************************
-I N C L U D E S
-*****************************************************************/
 
+	P L U G I N   I N C L U D E S
+
+
+***************************************************************************************/
 #include <sourcemod>
 #include <sdktools>
 #include <smlib>
+#include <smlib/pluginmanager>
+
+#undef REQUIRE_PLUGIN
+#undef REQUIRE_EXTENSIONS
 #include <clientprefs>
 
-/****************************************************************
-P L U G I N   C O N S T A N T S
-*****************************************************************/
+/***************************************************************************************
 
-#define PLUGIN_VERSION	"1.6"
-#define PLUGIN_NAME "Damage Sound"
-#define MIN 0.0
-#define MAX 1.0
-#define MAXMENUENTRYS 10
+
+	P L U G I N   I N F O
+
+
+***************************************************************************************/
+public Plugin:myinfo = {
+	name 						= "Damage Sound",
+	author 						= "BCServ:Chanz, foo bar",
+	description 				= "This plugin plays a sound when players hit each other.",
+	version 					= "2.0",
+	url 						= "https://forums.alliedmods.net/showthread.php?t=99552"
+}
+
+/***************************************************************************************
+
+
+	P L U G I N   D E F I N E S
+
+
+***************************************************************************************/
+#define MAX_FLOAT_MENU_ENTRYS 13
 #define MAXPITCH 255
 
+/***************************************************************************************
+
+
+	G L O B A L   V A R S
+
+
+***************************************************************************************/
+// Server Variables
+
+
+// Plugin Internal Variables
 const NUM_WEAPONS = 8;
 
-//Cvars:
-new Handle:damagesound_version 					= INVALID_HANDLE;
-new Handle:cvar_soundmaster_enable 				= INVALID_HANDLE;
-new Handle:cvar_soundpath 						= INVALID_HANDLE;
-new Handle:cvar_soundafterplaydelay 			= INVALID_HANDLE;
-new Handle:cvar_actonweapons = INVALID_HANDLE;
-//Plugin stuff:
-new String:soundpath[PLATFORM_MAX_PATH];
-new hitCounter[MAXPLAYERS+1][MAXPLAYERS+1];
-new Float:lastHit[MAXPLAYERS+1][MAXPLAYERS+1];
+// Console Variables
+new Handle:g_cvarEnable = INVALID_HANDLE;
+new Handle:g_cvarPath = INVALID_HANDLE;
+new Handle:g_cvarDelay = INVALID_HANDLE;
+new Handle:g_cvarActOnWeapons = INVALID_HANDLE;
+new Handle:g_cvarClient_Enable = INVALID_HANDLE;
+new Handle:g_cvarClient_Volume = INVALID_HANDLE;
+new Handle:g_cvarClient_Pitch = INVALID_HANDLE;
+new Handle:g_cvarClient_PitchTime = INVALID_HANDLE;
+
+// Console Variables: Runtime Optimizers
+new g_iPlugin_Enable = 1;
+new String:g_szPlugin_Path[PLATFORM_MAX_PATH] = "";
+new Float:g_flPlugin_Delay = 0.0;
+new String:g_szPlugin_ActOnWeapons[255] = "";
+new bool:g_bPlugin_Client_Enable = true;
+new Float:g_flPlugin_Client_Volume = 1.0;
+new bool:g_bPlugin_Client_Pitch = true;
+new Float:g_flPlugin_Client_PitchTime = 1.0;
+
+// Timers
 
 
-new String:actonWeapons[NUM_WEAPONS][32];
+// Library Load Checks
+new bool:g_bClientPrefs_Loaded = false;
 
-//cookie and settings:
-new Handle:cvar_client_enable		= INVALID_HANDLE;
-new Handle:cvar_client_volume		= INVALID_HANDLE;
-new Handle:cvar_client_pitch		= INVALID_HANDLE;
-new Handle:cvar_client_pitch_time	= INVALID_HANDLE;
+// Game Variables
+new bool:g_bConfigsExecuted = false;
 
-new bool:client_enable[MAXPLAYERS+1];
-new Float:client_volume[MAXPLAYERS+1];
-new bool:client_pitch[MAXPLAYERS+1];
-new Float:client_pitch_time[MAXPLAYERS+1];
+// Map Variables
+new bool:g_bMap_Loaded = false;
 
-new Handle:cookie_enable						= INVALID_HANDLE;
-new Handle:cookie_volume						= INVALID_HANDLE;
-new Handle:cookie_pitch							= INVALID_HANDLE;
-new Handle:cookie_pitch_time					= INVALID_HANDLE;
+// Client Variables
+new g_iClient_HitCounter[MAXPLAYERS+1][MAXPLAYERS+1];
+new Float:g_flClient_LastHit[MAXPLAYERS+1][MAXPLAYERS+1];
+new bool:g_bClient_Enable[MAXPLAYERS+1];
+new Float:g_flClient_Volume[MAXPLAYERS+1];
+new bool:g_bClient_Pitch[MAXPLAYERS+1];
+new Float:g_flClient_PitchTime[MAXPLAYERS+1];
+
+// Cookie Variables
+new Handle:g_cookieEnable = INVALID_HANDLE;
+new Handle:g_cookieVolume = INVALID_HANDLE;
+new Handle:g_cookiePitch = INVALID_HANDLE;
+new Handle:g_cookiePitchTime = INVALID_HANDLE;
+
+// M i s c
+new String:g_szActOnWeapons[NUM_WEAPONS][32];
 
 
-public Plugin:myinfo = 
-{
-	name = PLUGIN_NAME,
-	author = "Chanz",
-	description = "This plugin plays a sound when players hit each other.",
-	version = PLUGIN_VERSION,
-	url = "www.mannisfunhouse.eu"
-}
 
+/***************************************************************************************
+
+
+	F O R W A R D   P U B L I C S
+
+
+***************************************************************************************/
 public OnPluginStart()
 {
-	//New Comamnds:
-	RegConsoleCmd("sm_damagesound",Comamnd_DamageSoundMenu,"Shows the damagesound menu");
-	RegConsoleCmd("sm_hitsound",Comamnd_DamageSoundMenu,"Shows the damagesound menu");
+	// Initialization for SMLib
+	PluginManager_Initialize("damagesound", "[SM] ");
 	
-	damagesound_version = CreateConVar("sm_damagesound_version", PLUGIN_VERSION, "PLUGIN_NAME Version", FCVAR_PLUGIN|FCVAR_DONTRECORD|FCVAR_REPLICATED|FCVAR_NOTIFY);
+	// Translations
+	// LoadTranslations("common.phrases");
 	
-	//cvars:
-	cvar_soundmaster_enable = CreateConVar("sm_damagesound_enable", "1", "Master Switch to enable or disable this plugin. (0=off/1=on)", FCVAR_PLUGIN);
-	cvar_soundpath = CreateConVar("sm_damagesound_path", "buttons/button10.wav", "Path to damage sound file", FCVAR_PLUGIN);
-	cvar_soundafterplaydelay = CreateConVar("sm_damagesound_afterplaydelay", "0.1", "How many secounds should the plugin wait to play the sound again.(in seconds)", FCVAR_PLUGIN);
 	
-	//client defaults:
-	cvar_client_enable = CreateConVar("sm_damagesound_client_enable", "1", "Should the client have had DamageSound enabled by default? (1=yes/0=no)", FCVAR_PLUGIN);
-	cvar_client_volume = CreateConVar("sm_damagesound_client_volume", "0.7", "From 0.0 to 1.0 you can set the clients default volume of the sound.", FCVAR_PLUGIN);
-	cvar_client_pitch = CreateConVar("sm_damagesound_client_pitch", "0", "Should the sound for the client pitch up with every hit by default? (1=on/0=off) (Dystopia Effect)", FCVAR_PLUGIN);
-	cvar_client_pitch_time = CreateConVar("sm_damagesound_client_pitch_time", "2.0", "Sets the client default setting: If the attacker did not hit his victim, after X seconds the pitch resets to normal (0=it pitches up until the victim dies)", FCVAR_PLUGIN);
-	cvar_actonweapons = CreateConVar("sm_damagesound_actonweapon","","Specifies which weapons damagesounds will play for.  Default is all");
+	// Command Hooks (AddCommandListener) (If the command already exists, like the command kill, then hook it!)
 	
-	HookConVarChange(cvar_soundpath,CvarSoundPathHook);
-	HookEvent("player_hurt", Event_Hurt);
-	HookEvent("player_death", Event_Death);
-
-	AutoExecConfig(true, "plugin.damagesound");
 	
-	cookie_enable = RegClientCookie("DmgSndConf-Enable","DamageSound Enable cookie",CookieAccess_Private);
-	cookie_volume = RegClientCookie("DmgSndConf-Volume","DamageSound Volume cookie",CookieAccess_Private);
-	cookie_pitch = RegClientCookie("DmgSndConf-Pitch","DamageSound PitchEnable cookie",CookieAccess_Private);
-	cookie_pitch_time = RegClientCookie("DmgSndConf-PitchTime","DamageSound PitchTime cookie",CookieAccess_Private);
+	// Register New Commands (PluginManager_RegConsoleCmd) (If the command doesn't exist, hook it above!)
+	PluginManager_RegConsoleCmd("sm_damagesound", Command_DamageSoundMenu, "Shows the damagesound menu");
+	PluginManager_RegConsoleCmd("sm_hitsound", Command_DamageSoundMenu, "Shows the damagesound menu");
 	
-	RegConsoleCmd("sm_soundtest",Command_SoundTest,"damagesound test soound");
+	// Register Admin Commands (PluginManager_RegAdminCmd)
 	
 
-	PrintToServer("[%s] Plugin loaded... (v%s)",PLUGIN_NAME,PLUGIN_VERSION);
-}
-
-public OnConfigsExecuted(){
+	// Cvars: Create a global handle variable.
+	g_cvarEnable = PluginManager_CreateConVar("enable", "1", "Enables or disables this plugin");
+	g_cvarPath = PluginManager_CreateConVar("path", "buttons/button10.wav", "Path to damage sound file");
+	g_cvarDelay = PluginManager_CreateConVar("delay", "0.0", "How many secounds should the plugin wait to play the sound again (in seconds).");
+	g_cvarActOnWeapons = PluginManager_CreateConVar("actonweapon","","Specifies which weapons damagesounds will play for.  Default is all");
+	g_cvarClient_Enable = PluginManager_CreateConVar("client_enable", "1", "Should the client have had DamageSound enabled by default? (1=yes/0=no)");
+	g_cvarClient_Volume = PluginManager_CreateConVar("client_volume", "70", "From 0 to 100 (in percent) you can set the clients default volume of the sound.");
+	g_cvarClient_Pitch = PluginManager_CreateConVar("client_pitch", "0", "Should the sound for the client pitch up with every hit by default? (1=on/0=off) (Dystopia Effect)");
+	g_cvarClient_PitchTime = PluginManager_CreateConVar("client_pitch_time", "2.0", "Sets the client default setting: If the attacker did not hit his victim, after X seconds the pitch resets to normal (0=it pitches up until the victim dies)");
 	
-	SetConVarString(damagesound_version, PLUGIN_VERSION);
+	// Hook ConVar Change
+	HookConVarChange(g_cvarEnable, ConVarChange_Enable);
+	HookConVarChange(g_cvarPath, ConVarChange_Path);
+	HookConVarChange(g_cvarDelay, ConVarChange_Delay);
+	HookConVarChange(g_cvarActOnWeapons, ConVarChange_ActOnWeapons);
+	HookConVarChange(g_cvarClient_Enable, ConVarChange_Client_Enable);
+	HookConVarChange(g_cvarClient_Volume, ConVarChange_Client_Volume);
+	HookConVarChange(g_cvarClient_Pitch, ConVarChange_Client_Pitch);
+	HookConVarChange(g_cvarClient_PitchTime, ConVarChange_Client_PitchTime);
 	
-	decl String:tempsoundpath[PLATFORM_MAX_PATH];
+	// Event Hooks
+	PluginManager_HookEvent("player_hurt", Event_Hurt);
+	PluginManager_HookEvent("player_death", Event_Death);
 	
-	GetConVarString(cvar_soundpath,tempsoundpath,sizeof(tempsoundpath));
-	
-	if(IsSoundFileOk(tempsoundpath)){
-	
-		strcopy(soundpath,sizeof(soundpath),tempsoundpath);
-	}
-
-	decl String:temp[200];
-	GetConVarString(cvar_actonweapons,temp,sizeof(temp));
-	if(temp[0] != '\0'){
-		ExplodeString(temp," ",actonWeapons,sizeof(actonWeapons), sizeof(actonWeapons[]));
-	}
-
-}
-
-stock bool:IsSoundFileOk(const String:tempsoundpath[]){
-	
-	decl String:soundpathMainDir[PLATFORM_MAX_PATH];
-	Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",tempsoundpath);
-	
-	new bool:foundfile = true;
-	
-	if(StrEqual(soundpathMainDir,"",false) || StrEqual(soundpathMainDir,"/",false)){
+	// Library
+	g_bClientPrefs_Loaded = (GetExtensionFileStatus("clientprefs.ext") == 1);
+	if (g_bClientPrefs_Loaded) {
 		
-		PrintToChatAll("[%s] Sound File: '%s' is invalid.",PLUGIN_NAME,tempsoundpath);
-		LogError("[%s] Sound File: '%s' is invalid.",PLUGIN_NAME,tempsoundpath);
-		foundfile = false;
+		// prepare title for clientPref menu
+		decl String:menutitle[64];
+		Format(menutitle, sizeof(menutitle), "%s", Plugin_Name);
+		SetCookieMenuItem(PrefMenu, 0, menutitle);
+		
+		//Cookies
+		g_cookieEnable = RegClientCookie("DmgSndConf-Enable", "DamageSound Enable cookie", CookieAccess_Private);
+		g_cookieVolume = RegClientCookie("DmgSndConf-Volume", "DamageSound Volume cookie", CookieAccess_Private);
+		g_cookiePitch = RegClientCookie("DmgSndConf-Pitch", "DamageSound PitchEnable cookie", CookieAccess_Private);
+		g_cookiePitchTime = RegClientCookie("DmgSndConf-PitchTime", "DamageSound PitchTime cookie", CookieAccess_Private);
 	}
 	
-	if(!FileExists(soundpathMainDir,true) && !FileExists(soundpathMainDir,false)){
+	/* Features
+	if(CanTestFeatures()){
 		
-		PrintToChatAll("[%s] Sound File: '%s' does not exist.",PLUGIN_NAME,tempsoundpath);
-		LogError("[%s] Sound File: '%s' does not exist.",PLUGIN_NAME,tempsoundpath);
-		foundfile = false;
-	}	
+	}
+	*/
 	
-	return foundfile;
+	// Create ADT Arrays
+	
+	
+	// Timers
+	
+	
 }
 
+public OnMapStart()
+{
+	// hax against valvefail (thx psychonic for fix)
+	if (GuessSDKVersion() == SOURCE_SDK_EPISODE2VALVE) {
+		SetConVarString(Plugin_VersionCvar, Plugin_Version);
+	}
+
+	if (g_bConfigsExecuted) {
+
+		decl String:soundpathMainDir[PLATFORM_MAX_PATH];
+		Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",g_szPlugin_Path);
+		File_AddToDownloadsTable(soundpathMainDir);
+		
+		PrecacheSound(g_szPlugin_Path);
+	}
+
+	g_bMap_Loaded = true;
+}
+public OnMapEnd(){
+	g_bMap_Loaded = false;
+	g_bConfigsExecuted = false;
+}
+
+public OnConfigsExecuted()
+{
+	// Set your ConVar runtime optimizers here
+	g_iPlugin_Enable = GetConVarInt(g_cvarEnable);
+	GetConVarString(g_cvarPath, g_szPlugin_Path, sizeof(g_szPlugin_Path));
+	g_flPlugin_Delay = GetConVarFloat(g_cvarDelay);
+	GetConVarString(g_cvarActOnWeapons, g_szPlugin_ActOnWeapons, sizeof(g_szPlugin_ActOnWeapons));
+	g_bPlugin_Client_Enable = GetConVarBool(g_cvarClient_Enable);
+	g_flPlugin_Client_Volume = GetConVarFloat(g_cvarClient_Volume);
+	g_bPlugin_Client_Pitch = GetConVarBool(g_cvarClient_Pitch);
+	g_flPlugin_Client_PitchTime = GetConVarFloat(g_cvarClient_PitchTime);
+
+	// Mind: this is only here for late load, since on map change or server start, there isn't any client.
+	// Remove it if you don't need it.
+	Client_InitializeAll();
+
+	new validSoundFile = IsSoundFileValid(g_szPlugin_Path);
+	if (validSoundFile == 1 && g_bMap_Loaded) {
+
+		decl String:soundpathMainDir[PLATFORM_MAX_PATH];
+		Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",g_szPlugin_Path);
+		File_AddToDownloadsTable(soundpathMainDir);
+		PrecacheSound(g_szPlugin_Path);
+	}
+	else if(validSoundFile == 0){
+
+		decl String:cvarName[MAX_NAME_LENGTH];
+		GetConVarName(g_cvarPath, cvarName, sizeof(cvarName));
+		LogError("cvar %s is wrong, because %s is not a valid path", cvarName, g_szPlugin_Path);
+		g_szPlugin_Path[0] = '\0';
+	}
+	else if(validSoundFile == -1){
+
+		decl String:cvarName[MAX_NAME_LENGTH];
+		GetConVarName(g_cvarPath, cvarName, sizeof(cvarName));
+		LogError("cvar %s is wrong, because the file %s does not exist", cvarName, g_szPlugin_Path);
+		g_szPlugin_Path[0] = '\0';
+	}
+
+	if(g_szPlugin_ActOnWeapons[0] != '\0'){
+		ExplodeString(g_szPlugin_ActOnWeapons, " ", g_szActOnWeapons, sizeof(g_szActOnWeapons), sizeof(g_szActOnWeapons[]));
+	}
+
+	g_bConfigsExecuted = true;
+}
+
+public OnClientPutInServer(client)
+{
+	Client_Initialize(client);
+}
+
+public OnClientPostAdminCheck(client)
+{
+	Client_Initialize(client);
+}
+
+public OnClientCookiesCached(client)
+{
+	Client_Initialize(client);
+}
+
+/**************************************************************************************
+
+
+	C A L L B A C K   F U N C T I O N S
+
+
+**************************************************************************************/
+/**************************************************************************************
+
+	C O N  V A R  C H A N G E
+
+**************************************************************************************/
+/* Callback Con Var Change*/
+public ConVarChange_Enable(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_iPlugin_Enable = StringToInt(newVal);
+}
+
+public ConVarChange_Path(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	if(IsSoundFileValid(newVal) == 1){
+		
+		strcopy(g_szPlugin_Path,sizeof(g_szPlugin_Path),newVal);
+		
+		decl String:soundpathMainDir[PLATFORM_MAX_PATH];
+		Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",g_szPlugin_Path);
+		File_AddToDownloadsTable(soundpathMainDir);
+		PrecacheSound(g_szPlugin_Path);
+	}
+}
+
+public ConVarChange_Delay(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_flPlugin_Delay = StringToFloat(newVal);
+}
+
+public ConVarChange_ActOnWeapons(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	strcopy(g_szPlugin_ActOnWeapons, sizeof(g_szPlugin_ActOnWeapons), newVal);
+	if(g_szPlugin_ActOnWeapons[0] != '\0'){
+		ExplodeString(g_szPlugin_ActOnWeapons, " ", g_szActOnWeapons, sizeof(g_szActOnWeapons), sizeof(g_szActOnWeapons[]));
+	}
+}
+
+public ConVarChange_Client_Enable(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_bPlugin_Client_Enable = bool:StringToInt(newVal);
+}
+
+public ConVarChange_Client_Volume(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_flPlugin_Client_Volume = StringToFloat(newVal);
+}
+
+public ConVarChange_Client_Pitch(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_bPlugin_Client_Pitch = bool:StringToInt(newVal);
+}
+
+public ConVarChange_Client_PitchTime(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_flPlugin_Client_PitchTime = StringToFloat(newVal);
+}
+
+/**************************************************************************************
+
+	C O M M A N D S
+
+**************************************************************************************/
+/* Example Command Callback
+public Action:Command_(client, args)
+{
+	
+	return Plugin_Handled;
+}
+*/
+public PrefMenu(client, CookieMenuAction:action, any:info, String:buffer[], maxlen){
+	
+	if (action == CookieMenuAction_SelectOption) {
+		ShowDamageSoundMenu(client);
+	}
+}
+public Action:Command_DamageSoundMenu(client,args)
+{
+	ShowDamageSoundMenu(client);
+	return Plugin_Handled;
+}
+ShowDamageSoundMenu(client)
+{
+	new Handle:menu = CreateMenu(HandleDamageSoundMenu);
+	
+	SetMenuTitle(menu, "Damage Sound Menu\n\nThe Menu shows the\ncurrent settings");
+	
+	new String:value[14];
+	new String:buffer[32];
+	  
+	//Enable:
+	BoolToString(value, sizeof(value), g_bClient_Enable[client]);
+	Format(buffer, sizeof(buffer), "DamageSound is %s", value);
+	AddMenuItem(menu, "DS-Enable", buffer);
+	
+	//Volume:
+	Format(buffer, sizeof(buffer), "Volume: %.0f %", g_flClient_Volume[client]);
+	AddMenuItem(menu, "DS-Volume", buffer);
+	
+	//Pitch:
+	BoolToString(value, sizeof(value), g_bClient_Pitch[client]);
+	Format(buffer, sizeof(buffer), "Pitch is %s", value);
+	AddMenuItem(menu, "DS-Pitch", buffer);
+	
+	//PitchTime:
+	Format(buffer, sizeof(buffer), "PitchResetTime: %.2f", g_flClient_PitchTime[client]);
+	AddMenuItem(menu, "DS-PitchTime", buffer);
+	
+	DisplayMenu(menu, client, 90);	
+}
+public HandleDamageSoundMenu(Handle:menu, MenuAction:action, client, param)
+{
+	if (action == MenuAction_Select) {
+		decl String:info[32];
+		decl String:savedValue[8];
+		GetMenuItem(menu, param, info, sizeof(info));
+		
+		if(StrEqual(info,"DS-Enable",false)){
+			
+			g_bClient_Enable[client] = !g_bClient_Enable[client];
+			IntToString(g_bClient_Enable[client], savedValue, sizeof(savedValue));
+			if (g_bClientPrefs_Loaded) {
+				SetClientCookie(client, g_cookieEnable, savedValue);
+			}
+			Client_InitializeVariables(client);
+			ShowDamageSoundMenu(client);
+		}
+		else if(StrEqual(info,"DS-Volume",false)){
+			
+			ShowSettingVolumeMenu(client, info, 0.0, 1.0, MAX_FLOAT_MENU_ENTRYS);
+		}
+		else if(StrEqual(info,"DS-Pitch",false)){
+			
+			g_bClient_Pitch[client] = !g_bClient_Pitch[client];
+			IntToString(g_bClient_Pitch[client], savedValue, sizeof(savedValue));
+			if (g_bClientPrefs_Loaded) {
+				SetClientCookie(client, g_cookiePitch, savedValue);
+			}
+			Client_InitializeVariables(client);
+			ShowDamageSoundMenu(client);
+		}
+		else if(StrEqual(info,"DS-PitchTime",false)){
+			
+			ShowSettingSecondsMenu(client, info, 0.0, 5.0, MAX_FLOAT_MENU_ENTRYS);
+		}
+	}
+	else if (action == MenuAction_End) {
+		
+		CloseHandle(menu);
+	}
+}
+ShowSettingVolumeMenu(client, String:settingsName[], Float:rangeMin, Float:rangeMax, maxMenuEntrys)
+{
+	new Handle:menu = CreateMenu(HandleSettingVolumeMenu);
+	SetMenuTitle(menu, "Damage Sound Menu\nSelect volume:");
+	
+	new String:buffer[20];
+	
+	for(new i=0;i<=maxMenuEntrys;i++){
+
+		Format(buffer, sizeof(buffer), "%.0f %", (rangeMin+(((rangeMax-rangeMin)/maxMenuEntrys)*i)) * 100);
+		AddMenuItem(menu, settingsName, buffer);
+	}
+	
+	DisplayMenu(menu, client, 90);
+}
+public HandleSettingVolumeMenu(Handle:menu, MenuAction:action, client, param)
+{
+	if (action == MenuAction_Select) {
+		
+		decl String:info[32], String:display[32];
+		new style;
+		
+		GetMenuItem(menu, param, info, sizeof(info), style, display, sizeof(display));
+
+		g_flClient_Volume[client] = StringToFloat(display);
+		if (g_bClientPrefs_Loaded) {
+			SetClientCookie(client, g_cookieVolume, display);
+		}
+
+		ShowDamageSoundMenu(client);
+	}
+	else if (action == MenuAction_End) {
+		
+		CloseHandle(menu);
+	}
+}
+
+ShowSettingSecondsMenu(client, String:settingsName[], Float:rangeMin, Float:rangeMax, maxMenuEntrys)
+{
+	new Handle:menu = CreateMenu(HandleSettingSecondsMenu);
+	SetMenuTitle(menu, "Damage Sound Menu\nSelect pitch reset time:");
+	
+	new String:buffer[20];
+	
+	for(new i=0;i<=maxMenuEntrys;i++){
+		
+		Format(buffer, sizeof(buffer), "%.2f seconds", rangeMin+(((rangeMax-rangeMin)/maxMenuEntrys)*i));
+		AddMenuItem(menu, settingsName, buffer);
+	}
+	
+	DisplayMenu(menu, client, 90);
+}
+public HandleSettingSecondsMenu(Handle:menu, MenuAction:action, client, param)
+{
+	if (action == MenuAction_Select) {
+		
+		decl String:info[32], String:display[32];
+		new style;
+		
+		GetMenuItem(menu, param, info, sizeof(info), style, display, sizeof(display));
+		
+		g_flClient_PitchTime[client] = StringToFloat(display);
+		if (g_bClientPrefs_Loaded) {
+			SetClientCookie(client, g_cookiePitchTime, display);
+		}
+		Client_InitializeVariables(client);
+
+		ShowDamageSoundMenu(client);
+	}
+	else if (action == MenuAction_End) {
+		
+		CloseHandle(menu);
+	}
+}
+
+/**************************************************************************************
+
+	E V E N T S
+
+**************************************************************************************/
+/* Example Callback Event
+public Action:Event_Example(Handle:event, const String:name[], bool:dontBroadcast)
+{
+
+}
+*/
+public Action:Event_Death(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	
+	g_iClient_HitCounter[attacker][client] = 0;
+}
+
+public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	if (g_iPlugin_Enable == 0) {
+		return Plugin_Continue;
+	}
+
+	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	if(!g_bClient_Enable[attacker]){
+		return Plugin_Continue;
+	}
+
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if(Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)){
+		
+		decl String:weapon[32];
+		Client_GetActiveWeaponName(attacker, weapon, sizeof(weapon));
+		if(!IsWeaponSoundable(weapon)){
+			return Plugin_Continue;
+		}
+
+		new Float:theTime = GetGameTime();
+
+		if(g_flClient_PitchTime[attacker] > 0.0){
+			
+			if(theTime - g_flClient_PitchTime[attacker] >= g_flClient_LastHit[attacker][client]){
+				g_iClient_HitCounter[attacker][client] = 0;
+			}
+		}
+		
+		if (g_flPlugin_Delay > 0.0) {
+
+			if(theTime - g_flPlugin_Delay <= g_flClient_LastHit[attacker][client]){
+				return Plugin_Continue;
+			}
+		}
+		
+		g_flClient_LastHit[attacker][client] = theTime;
+
+		new calcPitch = SNDPITCH_NORMAL + g_iClient_HitCounter[attacker][client] * 4;
+		if (calcPitch > MAXPITCH) {
+			calcPitch = 255;
+		}
+
+		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, g_flClient_Volume[attacker] / 100.0, calcPitch);
+		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, g_flClient_Volume[attacker], calcPitch);
+		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, g_flClient_Volume[attacker], calcPitch);
+		
+		if(g_bClient_Pitch[attacker]){
+			g_iClient_HitCounter[attacker][client]++;
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+/***************************************************************************************
+
+
+	P L U G I N   F U N C T I O N S
+
+
+***************************************************************************************/
 bool:IsWeaponSoundable(String:weapon[])
 {
 	new i=0;
-	if(actonWeapons[0][0] == '\0'){
-//		PrintToServer("No acton weapons configured %s", actonWeapons[0]);
+
+	if (g_szActOnWeapons[0][0] == '\0') {
+
 		return true;
 	}
-	for(i=0;i<sizeof(actonWeapons);i++){
-//		PrintToServer("'%s' = '%s'", actonWeapons[i], weapon);
-		if(StrEqual(actonWeapons[i],weapon)){
+
+	for (i=0;i<sizeof(g_szActOnWeapons);i++) {
+
+		if (StrEqual(g_szActOnWeapons[i],weapon)) {
+
 			return true;
 		}
 	}
 	return false;
 }
 
-public CvarSoundPathHook(Handle:cvar, const String:oldVal[], const String:newVal[]){
-	
-	if(IsSoundFileOk(newVal)){
-		
-		PrintToChatAll("[%s] Found Sound File: '%s'",PLUGIN_NAME,newVal);
-		
-		strcopy(soundpath,sizeof(soundpath),newVal);
-		
-		
-		decl String:soundpathMainDir[PLATFORM_MAX_PATH];
-		Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",soundpath);
-		
-		PrintToChatAll("[%s] Found Sound File: '%s'",PLUGIN_NAME,soundpath);
-		PrintToChatAll("[%s] Found Sound File: '%s'",PLUGIN_NAME,soundpathMainDir);
-		
-		File_AddToDownloadsTable(soundpathMainDir);
-		
-		PrecacheSound(soundpath);
-	}
-}
-
-public OnMapStart(){
-	
-	GetConVarString(cvar_soundpath,soundpath,sizeof(soundpath));
-	
+IsSoundFileValid(const String:tempsoundpath[])
+{
 	decl String:soundpathMainDir[PLATFORM_MAX_PATH];
-	Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",soundpath);
-	File_AddToDownloadsTable(soundpathMainDir);
+	Format(soundpathMainDir,sizeof(soundpathMainDir),"sound/%s",tempsoundpath);
 	
-	PrecacheSound(soundpath);
-}
-
-public OnClientConnected(client){
-	
-	new Float:thetime = GetGameTime();
-	
-	for (new attacker=1; attacker<=MaxClients; attacker++) {
-		
-		hitCounter[client][attacker] = 0;
-		lastHit[client][attacker] = thetime;
+	if(StrEqual(soundpathMainDir,"",false) || StrEqual(soundpathMainDir,"/",false)){
+		return 0;
 	}
+	
+	if(!FileExists(soundpathMainDir,true) && !FileExists(soundpathMainDir,false)){
+		return -1;
+	}	
+	
+	return 1;
 }
 
-public OnClientPutInServer(client){
-	
-	if(IsClientConnected(client) && !IsClientSourceTV(client)){
-		
-		if(AreClientCookiesCached(client)){
-			
-			loadClientCookiesFor(client);
-		} 
-		else{
-			
-			client_enable[client] 		= GetConVarBool(cvar_client_enable);
-			client_volume[client] 		= GetConVarFloat(cvar_client_volume);
-			client_pitch[client] 		= GetConVarBool(cvar_client_pitch);
-			client_pitch_time[client] 	= GetConVarFloat(cvar_client_pitch_time);
-		}
-	}
+LoadClientPrefs_Cookies(client)
+{	
+	g_bClient_Enable[client] 		= loadCookieOrDefBool(client, g_cookieEnable, g_bPlugin_Client_Enable);
+	g_flClient_Volume[client] 		= loadCookieOrDefFloat(client, g_cookieVolume, g_flPlugin_Client_Volume);
+	g_bClient_Pitch[client] 		= loadCookieOrDefBool(client, g_cookiePitch, g_bPlugin_Client_Pitch);
+	g_flClient_PitchTime[client] 	= loadCookieOrDefFloat(client, g_cookiePitchTime, g_flPlugin_Client_PitchTime);
 }
 
-public OnClientCookiesCached(client){
-	
-	if(IsClientInGame(client) && !IsClientSourceTV(client)){
-		
-		loadClientCookiesFor(client);	
-	}
+LoaddClientPrefs_WithoutCookies(client)
+{
+	g_bClient_Enable[client] 		= g_bPlugin_Client_Enable;
+	g_flClient_Volume[client] 		= g_flPlugin_Client_Volume;
+	g_bClient_Pitch[client] 		= g_bPlugin_Client_Pitch;
+	g_flClient_PitchTime[client] 	= g_flPlugin_Client_PitchTime;
 }
 
-
-loadClientCookiesFor(client){	
-	
-	client_enable[client] = loadCookieOrDefBool(client,cookie_enable,cvar_client_enable);
-	client_volume[client] = loadCookieOrDefFloat(client,cookie_volume,cvar_client_volume);
-	client_pitch[client] = loadCookieOrDefBool(client,cookie_pitch,cvar_client_pitch);
-	client_pitch_time[client] = loadCookieOrDefFloat(client,cookie_pitch_time,cvar_client_pitch_time);
-}
-
-bool:loadCookieOrDefBool(client,Handle:cookie,Handle:defaultCvar){
-	
-	
+bool:loadCookieOrDefBool(client, Handle:cookie, bool:defaultValue)
+{
 	new String:buffer[64];
-	
 	GetClientCookie(client, cookie, buffer, sizeof(buffer));
 	
 	if(!StrEqual(buffer, "")){
@@ -340,13 +671,12 @@ bool:loadCookieOrDefBool(client,Handle:cookie,Handle:defaultCvar){
 	}
 	else {
 		
-		return GetConVarBool(defaultCvar);
+		return defaultValue;
 	}
 }
 
-Float:loadCookieOrDefFloat(client,Handle:cookie,Handle:defaultCvar){
-	
-	
+Float:loadCookieOrDefFloat(client, Handle:cookie, Float:defaultValue)
+{
 	new String:buffer[64];
 	
 	GetClientCookie(client, cookie, buffer, sizeof(buffer));
@@ -357,88 +687,12 @@ Float:loadCookieOrDefFloat(client,Handle:cookie,Handle:defaultCvar){
 	}
 	else {
 		
-		return GetConVarFloat(defaultCvar);
+		return defaultValue;
 	}
 }
 
-public Action:Event_Death(Handle:event, const String:name[], bool:dontBroadcast){
-	
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	
-	hitCounter[client][attacker] = 0;
-}
-
-public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
-{	
-	decl String:weapon[32];	
-
-	if(!GetConVarBool(cvar_soundmaster_enable)){
-		return;
-	}
-
-
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	if(!client_enable[attacker]){
-		return;
-	}
-
-	GetClientWeapon(attacker,weapon,sizeof(weapon));
-//	PrintToServer("damagesound: attacker=%d weapon=%s", attacker, weapon);	
-	
-	if(Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)){
-		
-		if(!IsWeaponSoundable(weapon)){
-//			PrintToServer("damagesound: No make damage sound for %s",weapon);
-			return;
-		} else {
-//			PrintToServer("damagesound: Make damage sound for %s",weapon);
-		}
-
-		new Float:thetime = GetGameTime();
-		new Float:resettime = client_pitch_time[client];
-		
-		if(resettime > 0.0){
-			
-			if((thetime - resettime) >= lastHit[client][attacker]){
-				
-				hitCounter[client][attacker] = 0;
-			}
-		}
-		
-		new Float:afterplaydelay = GetConVarFloat(cvar_soundafterplaydelay);
-		new bool:nosound = false;
-		
-		if(afterplaydelay > 0.0){
-			
-			if((thetime - afterplaydelay) <= lastHit[client][attacker]){
-				
-				nosound = true;
-			}
-		}
-		
-		lastHit[client][attacker] = thetime;
-		
-		if(!nosound){
-			
-			EmitSoundToClient(attacker, soundpath,SOUND_FROM_PLAYER,SNDCHAN_AUTO,SNDLEVEL_NORMAL,SND_NOFLAGS,client_volume[client],(SNDPITCH_NORMAL+hitCounter[client][attacker]));
-			EmitSoundToClient(attacker, soundpath,SOUND_FROM_PLAYER,SNDCHAN_AUTO,SNDLEVEL_NORMAL,SND_NOFLAGS,client_volume[client],(SNDPITCH_NORMAL+hitCounter[client][attacker]));
-		}
-		
-		if(client_pitch[client] && ((SNDPITCH_NORMAL+hitCounter[client][attacker]) < MAXPITCH)){
-			hitCounter[client][attacker]++;
-		}
-	}
-}
-
-public Action:Comamnd_DamageSoundMenu(client,args){
-	
-	ShowDamageSoundMenu(client);
-}
-
-BoolToString(String:str[],maxlen,bool:value){
-	
+BoolToString(String:str[],maxlen,bool:value)
+{
 	if(value){
 		strcopy(str,maxlen,"On");
 	}
@@ -447,120 +701,57 @@ BoolToString(String:str[],maxlen,bool:value){
 	}
 }
 
-ShowDamageSoundMenu(client){
-	
-	new Handle:menu = CreateMenu(HandleDamageSoundMenu);
-	
-	SetMenuTitle(menu, "Damage Sound Menu\n\nThe Menu shows the\ncurrent settings");
-	
-	new String:value[14];
-	new String:buffer[32];
-	
-	//Enable:
-	BoolToString(value,sizeof(value),client_enable[client]);
-	Format(buffer,sizeof(buffer),"DamageSound is %s",value);
-	AddMenuItem(menu,"DS-Enable",buffer);
-	
-	//Volume:
-	Format(buffer,sizeof(buffer),"Volume: %f",client_volume[client]);
-	AddMenuItem(menu,"DS-Volume",buffer);
-	
-	//Pitch:
-	BoolToString(value,sizeof(value),client_pitch[client]);
-	Format(buffer,sizeof(buffer),"Pitch is %s",value);
-	AddMenuItem(menu,"DS-Pitch",buffer);
-	
-	//PitchTime:
-	Format(buffer,sizeof(buffer),"PitchResetTime: %f",client_pitch_time[client]);
-	AddMenuItem(menu,"DS-PitchTime",buffer);
-	
-	DisplayMenu(menu, client, 90);	
-}
+/***************************************************************************************
 
-public HandleDamageSoundMenu(Handle:menu, MenuAction:action, client, param) {
-	
-	if (action == MenuAction_Select) {
-		decl String:info[32];
-		GetMenuItem(menu, param, info, sizeof(info));
+	S T O C K
+
+***************************************************************************************/
+stock Client_InitializeAll()
+{
+	LOOP_CLIENTS (client, CLIENTFILTER_ALL) {
 		
-		if(StrEqual(info,"DS-Enable",false)){
-			
-			client_enable[client] = !client_enable[client];
-			ShowDamageSoundMenu(client);
-		}
-		else if(StrEqual(info,"DS-Volume",false)){
-			
-			ShowSettingFloatMenu(client,info,MIN,MAX,MAXMENUENTRYS);
-		}
-		else if(StrEqual(info,"DS-Pitch",false)){
-			
-			client_pitch[client] = !client_pitch[client];
-			ShowDamageSoundMenu(client);
-		}
-		else if(StrEqual(info,"DS-PitchTime",false)){
-			
-			ShowSettingFloatMenu(client,info,MIN,MAX,MAXMENUENTRYS);
-		}
-	}
-	else if (action == MenuAction_End) {
-		
-		CloseHandle(menu);
+		Client_Initialize(client);
 	}
 }
 
-ShowSettingFloatMenu(client,String:settingsName[],Float:rangeMin,Float:rangeMax,maxMenuEntrys){
+stock Client_Initialize(client)
+{
+	// Variables
+	Client_InitializeVariables(client);
 	
-	new Handle:menu = CreateMenu(HandleSettingFloatMenu);
-	SetMenuTitle(menu, "Damage Sound Menu");
 	
-	new String:buffer[20];
+	// Functions
 	
-	for(new i=0;i<=maxMenuEntrys;i++){
-		
-		FloatToString(rangeMin+(((rangeMax-rangeMin)/maxMenuEntrys)*i),buffer,sizeof(buffer));
-		AddMenuItem(menu,settingsName,buffer);
+	
+	/* Functions where the player needs to be in game */
+	if (!IsClientInGame(client)) {
+		return;
 	}
-	
-	DisplayMenu(menu, client, 90);
-}
 
-public HandleSettingFloatMenu(Handle:menu, MenuAction:action, client, param) {
-	
-	if (action == MenuAction_Select) {
-		
-		decl String:info[11], String:display[20];
-		new style;
-		
-		GetMenuItem(menu, param, info, sizeof(info), style, display, sizeof(display));
-		
-		if(StrEqual(info,"DS-Volume",false)){
-			
-			client_volume[client] = StringToFloat(display);
-			SetClientCookie(client,cookie_volume,display);
-		}
-		else if(StrEqual(info,"DS-PitchTime",false)){
-			
-			client_pitch_time[client] = StringToFloat(display);
-			SetClientCookie(client,cookie_pitch_time,display);
-		}
-		
-		ShowDamageSoundMenu(client);
+	// ignore if its sourceTV
+	if (IsClientSourceTV(client)) {
+		return;
 	}
-	else if (action == MenuAction_End) {
+	
+	if(g_bClientPrefs_Loaded && AreClientCookiesCached(client)){
+				
+		LoadClientPrefs_Cookies(client);
+	} 
+	else{
 		
-		CloseHandle(menu);
+		LoaddClientPrefs_WithoutCookies(client);
 	}
 }
 
-public Action:Command_SoundTest(client,args){
-	
-	new Float:volume = client_volume[client];
-	new attacker = client;
-	
-	EmitSoundToClient(attacker, soundpath,SOUND_FROM_PLAYER,SNDCHAN_AUTO,SNDLEVEL_NORMAL,SND_NOFLAGS,volume,(SNDPITCH_NORMAL+hitCounter[client][attacker]));
-	EmitSoundToClient(attacker, soundpath,SOUND_FROM_PLAYER,SNDCHAN_AUTO,SNDLEVEL_NORMAL,SND_NOFLAGS,volume,(SNDPITCH_NORMAL+hitCounter[client][attacker]));
-	
-	return Plugin_Handled;
+stock Client_InitializeVariables(client)
+{
+	new Float:theGameTime = GetGameTime();
+	// Client Variables
+
+	for (new i=0; i<MAXPLAYERS+1; i++) {
+		g_iClient_HitCounter[client][i] = 0;
+		g_flClient_LastHit[client][i] = theGameTime;
+	}
 }
 
 
