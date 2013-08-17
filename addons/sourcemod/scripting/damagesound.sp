@@ -590,9 +590,11 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 			calcPitch = 255;
 		}
 
-		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, g_flClient_Volume[attacker] / 100.0, calcPitch);
-		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, g_flClient_Volume[attacker], calcPitch);
-		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, g_flClient_Volume[attacker], calcPitch);
+		new Float:calcVolume = g_flClient_Volume[attacker] / 100.0;
+
+		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
+		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
+		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
 		
 		if(g_bClient_Pitch[attacker]){
 			g_iClient_HitCounter[attacker][client]++;
