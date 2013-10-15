@@ -54,7 +54,7 @@ public Plugin:myinfo = {
 	name 						= "Damage Sound",
 	author 						= "BCServ:Chanz, foo bar",
 	description 				= "This plugin plays a sound when players hit each other.",
-	version 					= "2.0",
+	version 					= "2.1",
 	url 						= "https://forums.alliedmods.net/showthread.php?t=99552"
 }
 
@@ -109,6 +109,7 @@ new bool:g_bClientPrefs_Loaded = false;
 
 // Game Variables
 new bool:g_bConfigsExecuted = false;
+new EngineVersion:g_evEngine_Version = Engine_Unknown; // Guessed SDK version
 
 // Map Variables
 new bool:g_bMap_Loaded = false;
@@ -156,7 +157,7 @@ public OnPluginStart()
 	PluginManager_RegConsoleCmd("sm_hitsound", Command_DamageSoundMenu, "Shows the damagesound menu");
 	
 	// Register Admin Commands (PluginManager_RegAdminCmd)
-	
+	PluginManager_RegAdminCmd("sm_damagesound_test", Command_TestSound, ADMFLAG_ROOT, "Creates a hurt event of the game engine to test the damage sound");
 
 	// Cvars: Create a global handle variable.
 	g_cvarEnable = PluginManager_CreateConVar("enable", "1", "Enables or disables this plugin");
@@ -198,11 +199,8 @@ public OnPluginStart()
 		g_cookiePitchTime = RegClientCookie("DmgSndConf-PitchTime", "DamageSound PitchTime cookie", CookieAccess_Private);
 	}
 	
-	/* Features
-	if(CanTestFeatures()){
-		
-	}
-	*/
+	/* Features */
+	g_evEngine_Version = GetEngineVersion();
 	
 	// Create ADT Arrays
 	
@@ -215,7 +213,7 @@ public OnPluginStart()
 public OnMapStart()
 {
 	// hax against valvefail (thx psychonic for fix)
-	if (GuessSDKVersion() == SOURCE_SDK_EPISODE2VALVE) {
+	if (g_evEngine_Version == Engine_SourceSDK2007){
 		SetConVarString(Plugin_VersionCvar, Plugin_Version);
 	}
 
@@ -372,6 +370,27 @@ public Action:Command_(client, args)
 	return Plugin_Handled;
 }
 */
+public Action:Command_TestSound(client, args)
+{
+	new Handle:event = CreateEvent("player_hurt", true);
+
+	if (event == INVALID_HANDLE) {
+		ReplyToCommand(client, "%sError: The event 'player_hurt' doesn't exist in this game", Plugin_Tag);
+		return Plugin_Continue;
+	}
+
+	SetEventInt(event, "userid", -42);
+	SetEventInt(event, "attacker", GetClientUserId(client));
+	SetEventInt(event, "health", GetClientHealth(client));
+
+	Event_Hurt(event, "player_hurt", false);
+	
+	CloseHandle(event);
+
+	ReplyToCommand(client, "%sThe event 'player_hurt' was fired", Plugin_Tag);
+
+	return Plugin_Handled;
+}
 public PrefMenu(client, CookieMenuAction:action, any:info, String:buffer[], maxlen){
 	
 	if (action == CookieMenuAction_SelectOption) {
@@ -554,13 +573,16 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 	}
 
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+
 	if(!g_bClient_Enable[attacker]){
 		return Plugin_Continue;
 	}
 
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if(Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)){
-		
+	// if the userid is -42 then the command sm_damagesound_test was used, so we don't care about the client (victim).
+	new clientUserId = GetEventInt(event, "userid");
+	new client = GetClientOfUserId(clientUserId);
+	if((Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)) || clientUserId == -42){
+
 		decl String:weapon[32];
 		Client_GetActiveWeaponName(attacker, weapon, sizeof(weapon));
 		if(!IsWeaponSoundable(weapon)){
@@ -575,14 +597,14 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 				g_iClient_HitCounter[attacker][client] = 0;
 			}
 		}
-		
+
 		if (g_flPlugin_Delay > 0.0) {
 
 			if(theTime - g_flPlugin_Delay <= g_flClient_LastHit[attacker][client]){
 				return Plugin_Continue;
 			}
 		}
-		
+
 		g_flClient_LastHit[attacker][client] = theTime;
 
 		new calcPitch = SNDPITCH_NORMAL + g_iClient_HitCounter[attacker][client] * 4;
