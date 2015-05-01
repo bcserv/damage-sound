@@ -51,9 +51,9 @@
 
 ***************************************************************************************/
 public Plugin:myinfo = {
-	name 						= "Damage Sound",
+	name 						= "Damage Sound for Victims",
 	author 						= "BCServ:Chanz, foo bar",
-	description 				= "This plugin plays a sound when players hit each other.",
+	description 				= "This plugin plays a sound to a player when he gets hit.",
 	version 					= "2.2",
 	url 						= "https://forums.alliedmods.net/showthread.php?t=99552"
 }
@@ -115,8 +115,8 @@ new EngineVersion:g_evEngine_Version = Engine_Unknown; // Guessed SDK version
 new bool:g_bMap_Loaded = false;
 
 // Client Variables
-new g_iClient_HitCounter[MAXPLAYERS+1][MAXPLAYERS+1];
-new Float:g_flClient_LastHit[MAXPLAYERS+1][MAXPLAYERS+1];
+new g_iClient_HitCounter[MAXPLAYERS+1];
+new Float:g_flClient_LastHit[MAXPLAYERS+1];
 new bool:g_bClient_Enable[MAXPLAYERS+1];
 new Float:g_flClient_Volume[MAXPLAYERS+1];
 new bool:g_bClient_Pitch[MAXPLAYERS+1];
@@ -143,7 +143,7 @@ new String:g_szActOnWeapons[NUM_WEAPONS][32];
 public OnPluginStart()
 {
 	// Initialization for SMLib
-	PluginManager_Initialize("damagesound", "[SM] ");
+	PluginManager_Initialize("damagesound-victim", "[SM] ");
 	
 	// Translations
 	// LoadTranslations("common.phrases");
@@ -153,21 +153,21 @@ public OnPluginStart()
 	
 	
 	// Register New Commands (PluginManager_RegConsoleCmd) (If the command doesn't exist, hook it above!)
-	PluginManager_RegConsoleCmd("sm_damagesound", Command_DamageSoundMenu, "Shows the damagesound menu");
-	PluginManager_RegConsoleCmd("sm_hitsound", Command_DamageSoundMenu, "Shows the damagesound menu");
+	PluginManager_RegConsoleCmd("sm_damagesound-victim", Command_DamageSoundMenu, "Shows the damagesound menu");
+	PluginManager_RegConsoleCmd("sm_hitsound-victim", Command_DamageSoundMenu, "Shows the damagesound menu");
 	
 	// Register Admin Commands (PluginManager_RegAdminCmd)
-	PluginManager_RegAdminCmd("sm_damagesound_test", Command_TestSound, ADMFLAG_ROOT, "Creates a hurt event of the game engine to test the damage sound");
+	PluginManager_RegAdminCmd("sm_damagesound-victim_test", Command_TestSound, ADMFLAG_ROOT, "Creates a hurt event of the game engine to test the damage sound");
 
 	// Cvars: Create a global handle variable.
 	g_cvarEnable = PluginManager_CreateConVar("enable", "1", "Enables or disables this plugin");
 	g_cvarPath = PluginManager_CreateConVar("path", "buttons/button10.wav", "Path to damage sound file");
 	g_cvarDelay = PluginManager_CreateConVar("delay", "0.0", "How many secounds should the plugin wait to play the sound again (in seconds).");
-	g_cvarActOnWeapons = PluginManager_CreateConVar("actonweapon","","Specifies which weapons damagesounds will play for.  Default is all");
+	g_cvarActOnWeapons = PluginManager_CreateConVar("actonweapon","","Specifies which weapons (attacking player) will trigger the damage sound.  Default is all");
 	g_cvarClient_Enable = PluginManager_CreateConVar("client_enable", "1", "Should the client have had DamageSound enabled by default? (1=yes/0=no)");
 	g_cvarClient_Volume = PluginManager_CreateConVar("client_volume", "70", "From 0 to 100 (in percent) you can set the clients default volume of the sound.");
 	g_cvarClient_Pitch = PluginManager_CreateConVar("client_pitch", "0", "Should the sound for the client pitch up with every hit by default? (1=on/0=off) (Dystopia Effect)");
-	g_cvarClient_PitchTime = PluginManager_CreateConVar("client_pitch_time", "2.0", "Sets the client default setting: If the attacker did not hit his victim, after X seconds the pitch resets to normal (0=it pitches up until the victim dies)");
+	g_cvarClient_PitchTime = PluginManager_CreateConVar("client_pitch_time", "2.0", "Sets the client default setting: If the victim did not get hit after X seconds the pitch resets to normal (0=it pitches up until the victim dies)");
 	
 	// Hook ConVar Change
 	HookConVarChange(g_cvarEnable, ConVarChange_Enable);
@@ -193,10 +193,10 @@ public OnPluginStart()
 		SetCookieMenuItem(PrefMenu, 0, menutitle);
 		
 		//Cookies
-		g_cookieEnable = RegClientCookie("DmgSndConf-Enable", "DamageSound Enable cookie", CookieAccess_Private);
-		g_cookieVolume = RegClientCookie("DmgSndConf-Volume", "DamageSound Volume cookie", CookieAccess_Private);
-		g_cookiePitch = RegClientCookie("DmgSndConf-Pitch", "DamageSound PitchEnable cookie", CookieAccess_Private);
-		g_cookiePitchTime = RegClientCookie("DmgSndConf-PitchTime", "DamageSound PitchTime cookie", CookieAccess_Private);
+		g_cookieEnable = RegClientCookie("DmgSndVicConf-Enable", "DamageSound Enable cookie", CookieAccess_Private);
+		g_cookieVolume = RegClientCookie("DmgSndVicConf-Volume", "DamageSound Volume cookie", CookieAccess_Private);
+		g_cookiePitch = RegClientCookie("DmgSndVicConf-Pitch", "DamageSound PitchEnable cookie", CookieAccess_Private);
+		g_cookiePitchTime = RegClientCookie("DmgSndVicConf-PitchTime", "DamageSound PitchTime cookie", CookieAccess_Private);
 	}
 	
 	/* Features */
@@ -406,7 +406,7 @@ ShowDamageSoundMenu(client)
 {
 	new Handle:menu = CreateMenu(HandleDamageSoundMenu);
 	
-	SetMenuTitle(menu, "Damage Sound Menu\n\nThe Menu shows the\ncurrent settings");
+	SetMenuTitle(menu, "Damage Sound Victim Menu\n\nThe Menu shows the\ncurrent settings");
 	
 	new String:value[14];
 	new String:buffer[32];
@@ -475,7 +475,7 @@ public HandleDamageSoundMenu(Handle:menu, MenuAction:action, client, param)
 ShowSettingVolumeMenu(client, String:settingsName[], Float:rangeMin, Float:rangeMax, maxMenuEntrys)
 {
 	new Handle:menu = CreateMenu(HandleSettingVolumeMenu);
-	SetMenuTitle(menu, "Damage Sound Menu\nSelect volume:");
+	SetMenuTitle(menu, "Damage Sound Victim Menu\nSelect volume:");
 	
 	new String:buffer[20];
 	
@@ -512,7 +512,7 @@ public HandleSettingVolumeMenu(Handle:menu, MenuAction:action, client, param)
 ShowSettingSecondsMenu(client, String:settingsName[], Float:rangeMin, Float:rangeMax, maxMenuEntrys)
 {
 	new Handle:menu = CreateMenu(HandleSettingSecondsMenu);
-	SetMenuTitle(menu, "Damage Sound Menu\nSelect pitch reset time:");
+	SetMenuTitle(menu, "Damage Sound Victim Menu\nSelect pitch reset time:");
 	
 	new String:buffer[20];
 	
@@ -560,10 +560,9 @@ public Action:Event_Example(Handle:event, const String:name[], bool:dontBroadcas
 */
 public Action:Event_Death(Handle:event, const String:name[], bool:dontBroadcast)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	
-	g_iClient_HitCounter[attacker][client] = 0;
+	g_iClient_HitCounter[victim] = 0;
 }
 
 public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
@@ -572,16 +571,16 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 		return Plugin_Continue;
 	}
 
+	new victimUserId = GetEventInt(event, "userid");
+	new victim = GetClientOfUserId(victimUserId);
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 
-	if(!g_bClient_Enable[attacker]){
+	if(!g_bClient_Enable[victim]){
 		return Plugin_Continue;
 	}
 
 	// if the userid is -42 then the command sm_damagesound_test was used, so we don't care about the client (victim).
-	new clientUserId = GetEventInt(event, "userid");
-	new client = GetClientOfUserId(clientUserId);
-	if((Client_IsValid(client) && Client_IsValid(attacker) && (client != attacker)) || clientUserId == -42){
+	if((Client_IsValid(attacker) && Client_IsValid(victim) && (attacker != victim)) || victimUserId == -42){
 
 		decl String:weapon[32];
 		Client_GetActiveWeaponName(attacker, weapon, sizeof(weapon));
@@ -591,35 +590,35 @@ public Action:Event_Hurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 		new Float:theTime = GetGameTime();
 
-		if(g_flClient_PitchTime[attacker] > 0.0){
+		if(g_flClient_PitchTime[victim] > 0.0){
 			
-			if(theTime - g_flClient_PitchTime[attacker] >= g_flClient_LastHit[attacker][client]){
-				g_iClient_HitCounter[attacker][client] = 0;
+			if(theTime - g_flClient_PitchTime[victim] >= g_flClient_LastHit[victim]){
+				g_iClient_HitCounter[victim] = 0;
 			}
 		}
 
 		if (g_flPlugin_Delay > 0.0) {
 
-			if(theTime - g_flPlugin_Delay <= g_flClient_LastHit[attacker][client]){
+			if(theTime - g_flPlugin_Delay <= g_flClient_LastHit[victim]){
 				return Plugin_Continue;
 			}
 		}
 
-		g_flClient_LastHit[attacker][client] = theTime;
+		g_flClient_LastHit[victim] = theTime;
 
-		new calcPitch = SNDPITCH_NORMAL + g_iClient_HitCounter[attacker][client] * 4;
+		new calcPitch = SNDPITCH_NORMAL + g_iClient_HitCounter[victim] * 4;
 		if (calcPitch > MAXPITCH) {
 			calcPitch = 255;
 		}
 
-		new Float:calcVolume = g_flClient_Volume[attacker] / 100.0;
+		new Float:calcVolume = g_flClient_Volume[victim] / 100.0;
 
-		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
-		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
-		EmitSoundToClient(attacker, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
+		EmitSoundToClient(victim, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
+		EmitSoundToClient(victim, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
+		EmitSoundToClient(victim, g_szPlugin_Path, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_RAIDSIREN, SND_NOFLAGS, calcVolume, calcPitch);
 		
-		if(g_bClient_Pitch[attacker]){
-			g_iClient_HitCounter[attacker][client]++;
+		if(g_bClient_Pitch[victim]){
+			g_iClient_HitCounter[victim]++;
 		}
 	}
 
@@ -773,8 +772,8 @@ stock Client_InitializeVariables(client)
 	// Client Variables
 
 	for (new i=0; i<MAXPLAYERS+1; i++) {
-		g_iClient_HitCounter[client][i] = 0;
-		g_flClient_LastHit[client][i] = theGameTime;
+		g_iClient_HitCounter[client] = 0;
+		g_flClient_LastHit[client] = theGameTime;
 	}
 }
 
